@@ -1,0 +1,12 @@
+[package]
+name = "sshtool"
+version = "0.5.1"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.102"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.29.0"
+rpassword = "7.5.4"
+russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring", "rsa"] }
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "io-util", "io-std", "net", "rt", "signal", "sync"] }
