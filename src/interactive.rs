@@ -105,19 +105,104 @@ fn spawn_stdin_reader() -> mpsc::Receiver<Vec<u8>> {
 
 /// Puts the local terminal into raw mode and restores it on drop — so editors,
 /// control keys, and full-screen programs work, and an early return or panic
-/// still leaves the terminal usable.
-struct RawMode;
+/// still leaves the terminal usable. On Windows it additionally switches the
+/// console to virtual-terminal input and output, so keystrokes reach the remote
+/// as a raw VT byte stream and the remote's escape sequences render.
+struct RawMode {
+    #[cfg(windows)]
+    console: windows_console::VirtualTerminal,
+}
 
 impl RawMode {
     fn enter() -> Result<Self> {
         enable_raw_mode()?;
-        Ok(RawMode)
+        Ok(RawMode {
+            #[cfg(windows)]
+            console: windows_console::VirtualTerminal::enable()?,
+        })
     }
 }
 
 impl Drop for RawMode {
     fn drop(&mut self) {
+        // Undo our VT flags before crossterm un-raws, so crossterm's restore of
+        // the true original input mode has the final say.
+        #[cfg(windows)]
+        self.console.restore();
         let _ = disable_raw_mode();
+    }
+}
+
+/// Windows-only console-mode handling. crossterm's raw mode clears echo, line,
+/// and processed input but leaves virtual-terminal translation off; without it
+/// the threaded stdin reader never sees arrow/function keys as VT sequences and
+/// the remote's output escapes print literally. We flip both VT flags ourselves
+/// and remember the prior modes so they can be put back.
+#[cfg(windows)]
+mod windows_console {
+    use anyhow::{Result, bail};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::System::Console::{
+        CONSOLE_MODE, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+        GetConsoleMode, GetStdHandle, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+        SetConsoleMode,
+    };
+
+    /// The two console streams we touched, each remembering its original mode.
+    pub(super) struct VirtualTerminal {
+        input: ConsoleStream,
+        output: ConsoleStream,
+    }
+
+    impl VirtualTerminal {
+        pub(super) fn enable() -> Result<Self> {
+            Ok(Self {
+                input: ConsoleStream::enable(STD_INPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_INPUT)?,
+                output: ConsoleStream::enable(STD_OUTPUT_HANDLE, ENABLE_VIRTUAL_TERMINAL_PROCESSING)?,
+            })
+        }
+
+        pub(super) fn restore(&self) {
+            self.input.restore();
+            self.output.restore();
+        }
+    }
+
+    struct ConsoleStream {
+        stream: STD_HANDLE,
+        original: CONSOLE_MODE,
+    }
+
+    impl ConsoleStream {
+        fn enable(stream: STD_HANDLE, flag: CONSOLE_MODE) -> Result<Self> {
+            let original = read_mode(stream)?;
+            write_mode(stream, original | flag)?;
+            Ok(Self { stream, original })
+        }
+
+        fn restore(&self) {
+            let _ = write_mode(self.stream, self.original);
+        }
+    }
+
+    fn read_mode(stream: STD_HANDLE) -> Result<CONSOLE_MODE> {
+        let handle = unsafe { GetStdHandle(stream) };
+        if handle == INVALID_HANDLE_VALUE {
+            bail!("no console on this stream");
+        }
+        let mut mode: CONSOLE_MODE = 0;
+        if unsafe { GetConsoleMode(handle, &mut mode) } == 0 {
+            bail!("GetConsoleMode failed — not a console");
+        }
+        Ok(mode)
+    }
+
+    fn write_mode(stream: STD_HANDLE, mode: CONSOLE_MODE) -> Result<()> {
+        let handle = unsafe { GetStdHandle(stream) };
+        if unsafe { SetConsoleMode(handle, mode) } == 0 {
+            bail!("SetConsoleMode failed");
+        }
+        Ok(())
     }
 }
 
@@ -139,16 +224,34 @@ impl ResizeWatcher {
     }
 }
 
+/// Platforms without a resize signal (Windows) poll the console size instead,
+/// since reading raw bytes from stdin rules out crossterm's resize event, which
+/// would compete for the same console input.
 #[cfg(not(unix))]
-struct ResizeWatcher;
+struct ResizeWatcher {
+    last_size: (u16, u16),
+}
 
 #[cfg(not(unix))]
 impl ResizeWatcher {
     fn new() -> Result<Self> {
-        Ok(Self)
+        Ok(Self {
+            last_size: terminal::size().unwrap_or((80, 24)),
+        })
     }
 
+    /// Sample the size every 200 ms and return once it differs. The pump re-reads
+    /// the size to send `window_change`, so detecting a change is all that's needed.
     async fn changed(&mut self) {
-        std::future::pending::<()>().await
+        use std::time::Duration;
+        let mut tick = tokio::time::interval(Duration::from_millis(200));
+        loop {
+            tick.tick().await;
+            let current = terminal::size().unwrap_or(self.last_size);
+            if current != self.last_size {
+                self.last_size = current;
+                return;
+            }
+        }
     }
 }

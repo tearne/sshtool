@@ -1,6 +1,6 @@
 [package]
 name = "sshtool"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 
 [dependencies]
@@ -10,3 +10,10 @@ crossterm = "0.29.0"
 rpassword = "7.5.4"
 russh = { version = "0.61.2", default-features = false, features = ["flate2", "ring", "rsa"] }
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "io-util", "io-std", "net", "rt", "signal", "sync"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation"] }
+
+# Resize on Windows polls the console size on a timer; the Unix path uses SIGWINCH.
+[target.'cfg(not(unix))'.dependencies]
+tokio = { version = "1.52.3", features = ["time"] }

@@ -1922,7 +1922,7 @@ dependencies = [
 
 [[package]]
 name = "sshtool"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1930,6 +1930,7 @@ dependencies = [
  "rpassword",
  "russh",
  "tokio",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

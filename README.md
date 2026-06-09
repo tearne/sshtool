@@ -2,8 +2,6 @@
 
 Reach a remote host over SSH — optionally through a jumphost — and either run a command (streaming its output) or open an interactive terminal, the way `ssh` does. A small Rust library plus a command-line tool.
 
-The motivating case: a locked-down laptop that can't reach a remote host directly, but can SSH to a jumphost that can. `sshtool` collapses the two hops into one action.
-
 ## What it does
 
 Given a destination and optionally a jumphost, `sshtool`:
@@ -101,16 +99,3 @@ The executable is `target/x86_64-pc-windows-gnu/release/sshtool.exe`.
 
 The resulting `sshtool.exe` is self-contained: it imports only standard Windows system DLLs (no mingw runtime DLLs, no Visual C++ Redistributable). Copy the single `.exe` to the target machine and run it — no installation and no administrator rights are needed.
 
-## Testing
-
-```sh
-cargo test
-```
-
-The automated tests cover endpoint parsing. End-to-end behaviour — the real jumphost → remote hop — is verified by hand against reachable SSH infrastructure, since it needs live servers.
-
-## Scope
-
-`sshtool` is growing into a general, SSH-shaped tool driven by flags. Working today: run a command and stream its output, an interactive shell / `-t` PTY command, jumphost routing (`-J`), agent-then-password authentication with per-run password reuse, and `-V`/`--version`. Planned: port forwarding and reconnection.
-
-The interactive terminal is verified on Linux; its Windows runtime behaviour (raw console mode, window resize) is not yet tested. Also out of scope for now: host key verification (any host key is currently accepted), reading `~/.ssh/config`, and forwarding local stdin to a non-interactive command.
