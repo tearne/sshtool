@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0
+
+- Windows interactive terminal support: raw console mode with `ENABLE_VIRTUAL_TERMINAL_INPUT`/`ENABLE_VIRTUAL_TERMINAL_PROCESSING` so keystrokes (arrows, function keys) pass through as a VT byte stream and remote ANSI renders; window resize handled by polling the console size (no `SIGWINCH` on Windows). Console modes restored on exit/error/panic via the raw-mode guard.
+
+Note: the Windows interactive path is verified by cross-compilation and type-checking only; live runtime behaviour (raw input, ANSI rendering, resize reflow) has not yet been tested on a real Windows terminal.
+
 ## 0.5.1
 
 - Interactive terminal: with no command, `sshtool user@host` opens a remote shell over a PTY; `-t <command>` runs a command interactively (full-screen programs like `tmux`/`zellij`, `top`, editors). Raw-mode passthrough, with window resize forwarded on Linux.
