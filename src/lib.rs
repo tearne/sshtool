@@ -6,9 +6,11 @@ mod command;
 mod connection;
 mod endpoint;
 mod interactive;
+mod key_install;
 pub mod tunnel;
 
 pub use endpoint::{Endpoint, parse_endpoint};
+pub use key_install::{copy_id, keygen};
 pub use tunnel::tunnel;
 
 use anyhow::Result;

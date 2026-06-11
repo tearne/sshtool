@@ -25,6 +25,10 @@ impl Session {
     pub(crate) fn active(&self) -> &Handle<Client> {
         &self.active
     }
+
+    pub(crate) fn active_mut(&mut self) -> &mut Handle<Client> {
+        &mut self.active
+    }
 }
 
 pub(crate) async fn connect(
@@ -33,11 +37,20 @@ pub(crate) async fn connect(
     jumphost: Option<&Endpoint>,
 ) -> Result<Session> {
     let mut passwords = PasswordStore::default();
+    connect_with_passwords(username, remote_host, jumphost, &mut passwords).await
+}
+
+pub(crate) async fn connect_with_passwords(
+    username: &str,
+    remote_host: &str,
+    jumphost: Option<&Endpoint>,
+    passwords: &mut PasswordStore,
+) -> Result<Session> {
     match jumphost {
         Some(jumphost) => {
-            connect_via_jumphost(username, remote_host, jumphost, &mut passwords).await
+            connect_via_jumphost(username, remote_host, jumphost, passwords).await
         }
-        None => connect_directly(username, remote_host, &mut passwords).await,
+        None => connect_directly(username, remote_host, passwords).await,
     }
 }
 
@@ -52,6 +65,18 @@ async fn connect_directly(
         active,
         _jump: None,
     })
+}
+
+/// Open and authenticate a direct session, returning the raw handle.
+/// Used by setup to authenticate each hop independently.
+pub(crate) async fn open_and_authenticate(
+    host: &str,
+    username: &str,
+    passwords: &mut PasswordStore,
+) -> Result<Handle<Client>> {
+    let mut handle = open_session(host).await?;
+    authenticate(&mut handle, username, passwords).await?;
+    Ok(handle)
 }
 
 async fn connect_via_jumphost(
@@ -84,6 +109,32 @@ async fn open_session(host: &str) -> Result<Handle<Client>> {
     client::connect(ssh_config(), (host, SSH_PORT), Client)
         .await
         .with_context(|| format!("connecting to {host} (is the host name correct and reachable?)"))
+}
+
+/// Open an unauthenticated session handle, routed through a jumphost if given.
+/// Used for verification connections where we want to authenticate with the agent only.
+pub(crate) async fn open_unauthenticated(
+    host: &str,
+    jumphost: Option<&Endpoint>,
+) -> Result<Handle<Client>> {
+    match jumphost {
+        None => open_session(host).await,
+        Some(jumphost) => {
+            // The jump session must be authenticated to open the tunnel through it.
+            // We authenticate the jump with agent-only (no password) since we're
+            // verifying that key auth works.
+            let mut jump = open_session(&jumphost.host).await?;
+            let mut passwords = PasswordStore::default();
+            authenticate(&mut jump, jumphost.username.as_deref().unwrap_or(host), &mut passwords).await?;
+            let tunnel = jump
+                .channel_open_direct_tcpip(host, SSH_PORT.into(), "127.0.0.1", 0)
+                .await
+                .with_context(|| format!("opening tunnel to {host} through {}", jumphost.host))?;
+            client::connect_stream(ssh_config(), tunnel.into_stream(), Client)
+                .await
+                .with_context(|| format!("starting SSH session to {host} over jumphost"))
+        }
+    }
 }
 
 pub(crate) fn ssh_config() -> Arc<client::Config> {

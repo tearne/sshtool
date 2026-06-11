@@ -1,33 +1,20 @@
 # Changelog
 
-## 0.7.6
+## 0.8.8
 
-- Fix `-r` reconnection: channel closing without an ExitStatus (network drop) now correctly triggers reconnection instead of exiting cleanly with status 0.
+- `sshtool keygen`: generate an Ed25519 keypair and load it into the SSH agent. Discovers existing keys by scanning `~/.ssh/` for OpenSSH private key files rather than fixed names. Enforces exactly one key in agent. Passphrase support with prompts matching `ssh-keygen`.
+- `sshtool copy-id user@host [-J jumphost]`: install the agent's key on every hop, using `printf | tee -a` for rbash compatibility. Shares a password store across hops to avoid double prompting. Verifies key auth via a fresh connection after each install.
 
-## 0.7.5
+## 0.8.4
 
-- Add `-r`/`--reconnect` flag: auto-reconnecting interactive sessions. On network drop, waits backoff (2s–60s) and reconnects, re-running the same command. Designed for use with remote multiplexers — `sshtool -r -t user@host zellij attach` drops back into the existing zellij session when the network recovers.
+- `sshtool keygen`: generate an Ed25519 keypair and load it into the SSH agent; discovers existing keys by scanning `~/.ssh/` for OpenSSH private key files rather than fixed names. Passphrase support matching `ssh-keygen` conventions. Enforces exactly one key in agent.
+- `sshtool copy-id user@host [-J jumphost]`: install the agent's key on every hop, verifying auth after each install. Uses `printf | tee -a` for compatibility with restricted shells (rbash).
+- `-r`/`--reconnect`: auto-reconnecting interactive sessions — on drop, reconnects and re-runs the same command (e.g. `sshtool -r -t user@host tmux attach`).
+- `-L`/`-N`: local port forwarding with auto-reconnection, matching `ssh` flag conventions.
+- `-v`/`-vv`/`-vvv`: verbosity flag for connection diagnostics.
+- Strip debug symbols from release builds (7.5MB, down from 9.8MB).
 
-## 0.7.4
-
-- Add `-v`/`-vv`/`-vvv` verbosity flag: `-v` prints connection lifecycle events, `-vv` adds keepalive send/receive detail, `-vvv` enables russh internal trace logging to stderr.
-
-## 0.7.3
-
-- Fix reconnect hang: wrap each connection attempt with a 30s timeout so that when the network is still down during a reconnect, the TCP connect doesn't block indefinitely — it times out and the backoff loop retries.
-
-## 0.7.2
-
-- Fix reconnection detection: add an explicit heartbeat task inside each session that pings the server every 15s with a 15s reply timeout. Previously the russh keepalive ran in its own internal task but the accept loops had no way to observe session failure, so a dead network still hung. Now the heartbeat fails into the same JoinSet as the accept loops, triggering reconnection within ~30s of a network drop.
-
-## 0.7.1
-
-- Fix tunnel reconnection: SSH keepalives (every 15s, 3 strikes) now detect a dead connection and surface an error promptly instead of hanging indefinitely when the network drops.
-- Fix silent tunnel exit: an accept loop returning without error now triggers reconnection rather than exiting the process cleanly.
-
-## 0.7.0
-
-- Auto-reconnecting local port forwarding: `sshtool -N user@host -L local_port:remote_host:remote_port` binds a local TCP listener and tunnels connections through SSH, surviving transient network loss by reconnecting automatically (exponential backoff, 2s–60s). Multiple `-L` flags are accepted. `-N` suppresses the remote shell for forward-only sessions; omitting it runs a shell or command alongside the forwards, matching `ssh` behaviour.
+## 0.6.0
 
 ## 0.6.0
 

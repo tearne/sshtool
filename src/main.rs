@@ -6,18 +6,32 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::Parser;
 use clap::builder::ArgAction;
-use sshtool::{Target, interactive, parse_endpoint, reconnecting_interactive, run, tunnel, tunnel::parse_forward};
+use sshtool::{Target, copy_id, interactive, keygen, parse_endpoint, reconnecting_interactive, run, tunnel, tunnel::parse_forward};
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
-    let remote_status = execute(Invocation::parse()).await?;
+    // Route utility subcommands before clap sees them, to avoid conflicting parsers.
+    let args: Vec<String> = std::env::args().collect();
+    match args.get(1).map(String::as_str) {
+        Some("keygen") => {
+            keygen().await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        Some("copy-id") => {
+            let copy_id_args = CopyIdArgs::parse_from(&args[1..]);
+            let target = target_from_copy_id(&copy_id_args)?;
+            copy_id(&target).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        _ => {}
+    }
+
+    let invocation = SshArgs::parse();
+    let remote_status = execute(invocation).await?;
     Ok(exit_code_from(remote_status))
 }
 
-/// No command opens an interactive shell; `-t` runs the command over a PTY (e.g.
-/// `tmux attach`); a plain command runs non-interactively and streams its output.
-/// `-L` adds local port forwards (auto-reconnecting); `-N` suppresses the shell.
-async fn execute(invocation: Invocation) -> Result<u32> {
+async fn execute(invocation: SshArgs) -> Result<u32> {
     let target = target_from(&invocation)?;
     let command = (!invocation.command.is_empty()).then(|| invocation.command.join(" "));
 
@@ -46,7 +60,7 @@ async fn execute(invocation: Invocation) -> Result<u32> {
     }
 }
 
-fn target_from(invocation: &Invocation) -> Result<Target> {
+fn target_from(invocation: &SshArgs) -> Result<Target> {
     let destination = parse_endpoint(&invocation.destination)?;
     let username = destination
         .username
@@ -63,19 +77,36 @@ fn target_from(invocation: &Invocation) -> Result<Target> {
     })
 }
 
-/// Mirror `ssh`: exit with the remote command's status. A process exit code
-/// carries only a byte, so anything wider is truncated to it.
+fn target_from_copy_id(args: &CopyIdArgs) -> Result<Target> {
+    let destination = parse_endpoint(&args.destination)?;
+    let username = destination
+        .username
+        .context("destination must include a username, as user@host")?;
+    let jumphost = args
+        .jumphost
+        .as_deref()
+        .map(parse_endpoint)
+        .transpose()?;
+    Ok(Target {
+        username,
+        host: destination.host,
+        jumphost,
+    })
+}
+
 fn exit_code_from(remote_status: u32) -> ExitCode {
     ExitCode::from(remote_status as u8)
 }
 
 /// `sshtool [-t] user@host [-J [user@]host] [--] [command...]`
+/// `sshtool keygen`
+/// `sshtool copy-id user@host [-J [user@]host]`
 #[derive(Parser)]
 #[command(
     version,
-    about = "Run a command on a remote host through SSH, or open an interactive terminal"
+    about = "Run a command on a remote host through SSH, or open an interactive terminal.\nUse `sshtool keygen` to generate a key, then `sshtool copy-id user@host` to install it."
 )]
-struct Invocation {
+struct SshArgs {
     /// Remote destination as user@host
     destination: String,
 
@@ -107,4 +138,16 @@ struct Invocation {
     /// Command to run; omit for an interactive shell (a leading `--` is optional)
     #[arg(trailing_var_arg = true)]
     command: Vec<String>,
+}
+
+/// `sshtool copy-id user@host [-J jumphost]`
+#[derive(Parser)]
+#[command(about = "Install the agent's SSH key on the remote host (and jumphost if specified)")]
+struct CopyIdArgs {
+    /// Remote destination as user@host
+    destination: String,
+
+    /// Jumphost to route through, as [user@]host (SSH-style -J / ProxyJump)
+    #[arg(short = 'J', long = "jumphost")]
+    jumphost: Option<String>,
 }

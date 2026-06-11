@@ -13,7 +13,7 @@ use crate::connection::Client;
 /// Passwords entered during one connection, remembered by username so the same
 /// account isn't prompted again for a later hop. Lives for a single `connect`;
 /// never persisted.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(crate) struct PasswordStore {
     by_username: HashMap<String, String>,
 }
