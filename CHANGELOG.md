@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.10
+
+- `sshtool install` (Windows): copies the binary to `%USERPROFILE%\bin` and adds it to the user PATH via the registry. No admin rights required. Idempotent — safe to run again from the installed location.
+
 ## 0.8.8
 
 - `sshtool keygen`: generate an Ed25519 keypair and load it into the SSH agent. Discovers existing keys by scanning `~/.ssh/` for OpenSSH private key files rather than fixed names. Enforces exactly one key in agent. Passphrase support with prompts matching `ssh-keygen`.

@@ -8,10 +8,14 @@ mod endpoint;
 mod interactive;
 mod key_install;
 pub mod tunnel;
+#[cfg(windows)]
+mod install;
 
 pub use endpoint::{Endpoint, parse_endpoint};
 pub use key_install::{copy_id, keygen};
 pub use tunnel::tunnel;
+#[cfg(windows)]
+pub use install::install;
 
 use anyhow::Result;
 

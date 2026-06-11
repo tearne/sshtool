@@ -7,6 +7,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use clap::builder::ArgAction;
 use sshtool::{Target, copy_id, interactive, keygen, parse_endpoint, reconnecting_interactive, run, tunnel, tunnel::parse_forward};
+#[cfg(windows)]
+use sshtool::install;
 
 #[tokio::main]
 async fn main() -> Result<ExitCode> {
@@ -21,6 +23,11 @@ async fn main() -> Result<ExitCode> {
             let copy_id_args = CopyIdArgs::parse_from(&args[1..]);
             let target = target_from_copy_id(&copy_id_args)?;
             copy_id(&target).await?;
+            return Ok(ExitCode::SUCCESS);
+        }
+        #[cfg(windows)]
+        Some("install") => {
+            install().await?;
             return Ok(ExitCode::SUCCESS);
         }
         _ => {}

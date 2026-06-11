@@ -1,6 +1,6 @@
 [package]
 name = "sshtool"
-version = "0.8.8"
+version = "0.8.10"
 edition = "2024"
 
 [dependencies]
@@ -15,7 +15,7 @@ russh = { version = "0.61.2", default-features = false, features = ["flate2", "r
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "io-util", "io-std", "net", "rt", "signal", "sync"] }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation"] }
+windows-sys = { version = "0.59", features = ["Win32_System_Console", "Win32_Foundation", "Win32_System_Registry", "Win32_Security"] }
 
 [profile.release]
 strip = true
