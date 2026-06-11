@@ -78,3 +78,11 @@ Risk flags named:
 - **Design principle — keep CLI args/flags as close to normal `ssh` as possible.** Same fallback rationale: familiarity means users can swap in stock `ssh` when needed.
 
 - **Next time — entry point:** begin re/planning the queued changes restructured under this vision. Natural first concrete change is **Phase 1 (sustained auto-reconnecting tunnel, CLI)**. This vision-and-pivot Wander stays **open and active** as the reference frame for that replanning; revisit whether to conclude/archive it once the follow-on changes exist.
+
+## Conclusion
+
+Explored the product direction in three movements: problems from the customer base, a solution sketch, and a step-back assessment. Outcome: pivot to an "SSH companion for Windows-first non-experts" — get connected, stay connected, prove what went wrong — with a dual front door (bare invocation → TUI, args → CLI as today).
+
+Queued changes restructured under four sequenced phases: (1) sustained auto-reconnecting tunnel CLI, (2) multi-hop key install CLI, (3) `~/.ssh/config` support, (4) TUI front door, (5) diagnostics, with the original SSH-fidelity changes sequenced last (#6–8). New stubs opened; existing changes renumbered.
+
+No changelog entry — this was a planning exploration, no code changed.
