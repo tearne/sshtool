@@ -6,8 +6,10 @@ mod command;
 mod connection;
 mod endpoint;
 mod interactive;
+pub mod tunnel;
 
 pub use endpoint::{Endpoint, parse_endpoint};
+pub use tunnel::tunnel;
 
 use anyhow::Result;
 
@@ -31,6 +33,16 @@ pub async fn run(target: &Target, command: &str) -> Result<u32> {
 pub async fn interactive(target: &Target, command: Option<&str>) -> Result<u32> {
     let session = connect(target).await?;
     interactive::interactive(session.active(), command).await
+}
+
+/// Open an interactive terminal with automatic reconnection on network drop.
+/// Re-runs the same command each time (e.g. `tmux attach` or `zellij attach`).
+pub async fn reconnecting_interactive(
+    target: &Target,
+    command: Option<&str>,
+    verbose: u8,
+) -> Result<u32> {
+    interactive::reconnecting_interactive(target, command, verbose).await
 }
 
 async fn connect(target: &Target) -> Result<connection::Session> {

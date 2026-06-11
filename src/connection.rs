@@ -2,6 +2,7 @@
 //! or tunnelled through a jumphost.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use russh::client::{self, Handle};
@@ -85,8 +86,12 @@ async fn open_session(host: &str) -> Result<Handle<Client>> {
         .with_context(|| format!("connecting to {host} (is the host name correct and reachable?)"))
 }
 
-fn ssh_config() -> Arc<client::Config> {
-    Arc::new(client::Config::default())
+pub(crate) fn ssh_config() -> Arc<client::Config> {
+    Arc::new(client::Config {
+        keepalive_interval: Some(Duration::from_secs(15)),
+        keepalive_max: 3,
+        ..<client::Config>::default()
+    })
 }
 
 /// The SSH event handler. For this demonstrator we accept any host key — host key

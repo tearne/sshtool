@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.6
+
+- Fix `-r` reconnection: channel closing without an ExitStatus (network drop) now correctly triggers reconnection instead of exiting cleanly with status 0.
+
+## 0.7.5
+
+- Add `-r`/`--reconnect` flag: auto-reconnecting interactive sessions. On network drop, waits backoff (2s–60s) and reconnects, re-running the same command. Designed for use with remote multiplexers — `sshtool -r -t user@host zellij attach` drops back into the existing zellij session when the network recovers.
+
+## 0.7.4
+
+- Add `-v`/`-vv`/`-vvv` verbosity flag: `-v` prints connection lifecycle events, `-vv` adds keepalive send/receive detail, `-vvv` enables russh internal trace logging to stderr.
+
+## 0.7.3
+
+- Fix reconnect hang: wrap each connection attempt with a 30s timeout so that when the network is still down during a reconnect, the TCP connect doesn't block indefinitely — it times out and the backoff loop retries.
+
+## 0.7.2
+
+- Fix reconnection detection: add an explicit heartbeat task inside each session that pings the server every 15s with a 15s reply timeout. Previously the russh keepalive ran in its own internal task but the accept loops had no way to observe session failure, so a dead network still hung. Now the heartbeat fails into the same JoinSet as the accept loops, triggering reconnection within ~30s of a network drop.
+
+## 0.7.1
+
+- Fix tunnel reconnection: SSH keepalives (every 15s, 3 strikes) now detect a dead connection and surface an error promptly instead of hanging indefinitely when the network drops.
+- Fix silent tunnel exit: an accept loop returning without error now triggers reconnection rather than exiting the process cleanly.
+
+## 0.7.0
+
+- Auto-reconnecting local port forwarding: `sshtool -N user@host -L local_port:remote_host:remote_port` binds a local TCP listener and tunnels connections through SSH, surviving transient network loss by reconnecting automatically (exponential backoff, 2s–60s). Multiple `-L` flags are accepted. `-N` suppresses the remote shell for forward-only sessions; omitting it runs a shell or command alongside the forwards, matching `ssh` behaviour.
+
 ## 0.6.0
 
 - Windows interactive terminal support: raw console mode with `ENABLE_VIRTUAL_TERMINAL_INPUT`/`ENABLE_VIRTUAL_TERMINAL_PROCESSING` so keystrokes (arrows, function keys) pass through as a VT byte stream and remote ANSI renders; window resize handled by polling the console size (no `SIGWINCH` on Windows). Console modes restored on exit/error/panic via the raw-mode guard.

@@ -17,12 +17,83 @@ use crate::connection::Client;
 /// command — and wire it to the local terminal until it closes. Returns the
 /// remote exit status.
 pub(crate) async fn interactive(session: &Handle<Client>, command: Option<&str>) -> Result<u32> {
+    let mut stdin = spawn_stdin_reader();
     let mut channel = session.channel_open_session().await?;
     request_pty(&channel).await?;
     start(&channel, command).await?;
-
     let _raw = RawMode::enter()?;
-    pump(&mut channel).await
+    pump(&mut channel, &mut stdin).await
+}
+
+/// Open an interactive session with reconnection: on drop, wait backoff and
+/// reconnect, re-running the same command each time. The stdin reader is shared
+/// across reconnects so input typed during a reconnect attempt is not lost.
+/// Returns only when the remote command exits cleanly (status 0) or on a
+/// non-recoverable error.
+pub(crate) async fn reconnecting_interactive(
+    target: &crate::Target,
+    command: Option<&str>,
+    verbose: u8,
+) -> Result<u32> {
+    let mut stdin = spawn_stdin_reader();
+    let _raw = RawMode::enter()?;
+    let mut backoff = std::time::Duration::from_secs(2);
+
+    loop {
+        if verbose >= 1 {
+            eprintln!("Connecting to {}…", target.host);
+        }
+        let session = match connect_with_timeout(target).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Connection failed: {e:#}");
+                eprintln!("Retrying in {}s…", backoff.as_secs());
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_secs(60));
+                continue;
+            }
+        };
+        if verbose >= 1 {
+            eprintln!("Connected.");
+        }
+        backoff = std::time::Duration::from_secs(2);
+
+        let mut channel = match session.active().channel_open_session().await {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("Session error: {e:#}");
+                continue;
+            }
+        };
+        if let Err(e) = request_pty(&channel).await {
+            eprintln!("PTY error: {e:#}");
+            continue;
+        }
+        if let Err(e) = start(&channel, command).await {
+            eprintln!("Start error: {e:#}");
+            continue;
+        }
+
+        match pump(&mut channel, &mut stdin).await {
+            Ok(status) if status == 0 => return Ok(status),
+            Ok(status) => return Ok(status),
+            Err(e) => {
+                eprintln!("Connection lost: {e:#}");
+                eprintln!("Reconnecting in {}s…", backoff.as_secs());
+                tokio::time::sleep(backoff).await;
+                backoff = (backoff * 2).min(std::time::Duration::from_secs(60));
+            }
+        }
+    }
+}
+
+async fn connect_with_timeout(target: &crate::Target) -> Result<crate::connection::Session> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        crate::connection::connect(&target.username, &target.host, target.jumphost.as_ref()),
+    )
+    .await
+    .map_err(|_| anyhow::anyhow!("timed out connecting to {}", target.host))?
 }
 
 async fn request_pty(channel: &Channel<Msg>) -> Result<()> {
@@ -44,12 +115,11 @@ async fn start(channel: &Channel<Msg>, command: Option<&str>) -> Result<()> {
 
 /// Shuttle bytes between the local terminal and the channel until the remote
 /// closes, forwarding terminal resizes as they happen.
-async fn pump(channel: &mut Channel<Msg>) -> Result<u32> {
+async fn pump(channel: &mut Channel<Msg>, local_stdin: &mut mpsc::Receiver<Vec<u8>>) -> Result<u32> {
     let mut local_stdout = stdout();
-    let mut local_stdin = spawn_stdin_reader();
     let mut resize = ResizeWatcher::new()?;
     let mut local_stdin_open = true;
-    let mut exit_status = 0;
+    let mut exit_status: Option<u32> = None;
 
     loop {
         tokio::select! {
@@ -69,14 +139,19 @@ async fn pump(channel: &mut Channel<Msg>) -> Result<u32> {
                     local_stdout.write_all(data).await?;
                     local_stdout.flush().await?;
                 }
-                Some(ChannelMsg::ExitStatus { exit_status: status }) => exit_status = status,
+                Some(ChannelMsg::ExitStatus { exit_status: status }) => exit_status = Some(status),
                 Some(_) => {}
                 None => break,
             },
         }
     }
 
-    Ok(exit_status)
+    // A clean exit sends ExitStatus before closing the channel. No ExitStatus
+    // means the channel was closed by a network drop — signal reconnection.
+    match exit_status {
+        Some(status) => Ok(status),
+        None => Err(anyhow::anyhow!("connection dropped")),
+    }
 }
 
 /// Read raw stdin on a dedicated OS thread, forwarding chunks over a channel.
