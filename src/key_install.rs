@@ -13,7 +13,7 @@ use russh::keys::PrivateKey;
 use crate::Target;
 use crate::authentication::PasswordStore;
 use crate::command;
-use crate::connection::{self, Client};
+use crate::connection::{self, Client, DEFAULT_SSH_PORT};
 
 // ── keygen ────────────────────────────────────────────────────────────────────
 
@@ -152,24 +152,25 @@ pub async fn copy_id(target: &Target) -> Result<()> {
     if let Some(jumphost) = &target.jumphost {
         let jump_username = jumphost.username.as_deref().unwrap_or(&target.username);
         println!("Installing key on jumphost {}…", jumphost.host);
-        let mut handle =
-            connection::open_and_authenticate(&jumphost.host, jump_username, &mut passwords)
+        let handle =
+            connection::open_and_authenticate(&jumphost.host, DEFAULT_SSH_PORT, jump_username, &mut passwords)
                 .await?;
         install_on_handle(&handle, &public_key_line).await?;
         println!("  Verifying…");
-        verify_and_report(jump_username, &jumphost.host, None).await;
+        verify_and_report(jump_username, &jumphost.host, DEFAULT_SSH_PORT, None).await;
     }
 
     println!("Installing key on {}…", target.host);
     let session = connection::connect_with_passwords(
         &target.username,
         &target.host,
+        target.port,
         target.jumphost.as_ref(),
         &mut passwords,
     ).await?;
     install_on_handle(session.active(), &public_key_line).await?;
     println!("  Verifying…");
-    verify_and_report(&target.username, &target.host, target.jumphost.as_ref()).await;
+    verify_and_report(&target.username, &target.host, target.port, target.jumphost.as_ref()).await;
 
     Ok(())
 }
@@ -192,8 +193,8 @@ async fn install_on_handle(
     Ok(())
 }
 
-async fn verify_and_report(username: &str, host: &str, jumphost: Option<&crate::endpoint::Endpoint>) {
-    match verify_with_fresh_connection(username, host, jumphost).await {
+async fn verify_and_report(username: &str, host: &str, port: u16, jumphost: Option<&crate::endpoint::Endpoint>) {
+    match verify_with_fresh_connection(username, host, port, jumphost).await {
         Ok(true) => println!("  ✓ Key authentication works on {host}"),
         Ok(false) => println!(
             "  ✗ Key authentication failed on {host} — check authorized_keys settings"
@@ -207,9 +208,10 @@ async fn verify_and_report(username: &str, host: &str, jumphost: Option<&crate::
 async fn verify_with_fresh_connection(
     username: &str,
     host: &str,
+    port: u16,
     jumphost: Option<&crate::endpoint::Endpoint>,
 ) -> Result<bool> {
-    let mut handle = connection::open_unauthenticated(host, jumphost).await?;
+    let mut handle = connection::open_unauthenticated(host, port, jumphost).await?;
     match connect_to_agent().await {
         Some(mut agent) => {
             let identities = agent.request_identities().await.unwrap_or_default();

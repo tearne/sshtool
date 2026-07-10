@@ -18,10 +18,10 @@ use crate::connection::Client;
 /// remote exit status.
 pub(crate) async fn interactive(session: &Handle<Client>, command: Option<&str>) -> Result<u32> {
     let mut stdin = spawn_stdin_reader();
+    let _raw = RawMode::enter()?;
     let mut channel = session.channel_open_session().await?;
     request_pty(&channel).await?;
     start(&channel, command).await?;
-    let _raw = RawMode::enter()?;
     pump(&mut channel, &mut stdin).await
 }
 
@@ -90,7 +90,7 @@ pub(crate) async fn reconnecting_interactive(
 async fn connect_with_timeout(target: &crate::Target) -> Result<crate::connection::Session> {
     tokio::time::timeout(
         std::time::Duration::from_secs(30),
-        crate::connection::connect(&target.username, &target.host, target.jumphost.as_ref()),
+        crate::connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()),
     )
     .await
     .map_err(|_| anyhow::anyhow!("timed out connecting to {}", target.host))?

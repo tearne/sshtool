@@ -7,6 +7,7 @@ mod connection;
 mod endpoint;
 mod interactive;
 mod key_install;
+pub mod ssh_config;
 pub mod tunnel;
 #[cfg(windows)]
 mod install;
@@ -24,6 +25,7 @@ use anyhow::Result;
 pub struct Target {
     pub username: String,
     pub host: String,
+    pub port: u16,
     pub jumphost: Option<Endpoint>,
 }
 
@@ -52,5 +54,5 @@ pub async fn reconnecting_interactive(
 }
 
 async fn connect(target: &Target) -> Result<connection::Session> {
-    connection::connect(&target.username, &target.host, target.jumphost.as_ref()).await
+    connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()).await
 }

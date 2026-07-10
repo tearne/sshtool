@@ -1943,7 +1943,7 @@ dependencies = [
 
 [[package]]
 name = "sshtool"
-version = "0.8.10"
+version = "0.9.4"
 dependencies = [
  "anyhow",
  "clap",

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.4
+
+- Read connection settings from `~/.ssh/config`: `HostName`, `User`, `Port`, and `ProxyJump` (single hop). Explicit CLI flags take precedence. `sshtool myalias` now honours whatever the user has set up for `ssh`.
+
 ## 0.8.10
 
 - `sshtool install` (Windows): copies the binary to `%USERPROFILE%\bin` and adds it to the user PATH via the registry. No admin rights required. Idempotent — safe to run again from the installed location.

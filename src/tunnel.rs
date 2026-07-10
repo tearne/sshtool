@@ -215,7 +215,7 @@ async fn forward_connection(
 async fn connect(target: &Target) -> Result<Session> {
     timeout(
         Duration::from_secs(30),
-        connection::connect(&target.username, &target.host, target.jumphost.as_ref()),
+        connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()),
     )
     .await
     .map_err(|_| anyhow::anyhow!("timed out connecting to {}", target.host))?
