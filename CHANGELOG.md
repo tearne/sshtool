@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.6
+
+- Fix: an explicit `-J <alias>` jumphost is now resolved through `~/.ssh/config` (honouring the alias's `HostName` and `User`), matching how a config `ProxyJump` alias already resolved. `sshtool -J jh2 host` no longer fails with "No such host is known" when `jh2` is a config alias.
+
 ## 0.9.5
 
 - `--keygen`, `--copy-id`, and `--install` (Windows) are now first-class flags listed in `--help`, replacing the previous hidden subcommand-style routing. The default `sshtool user@host` invocation is unchanged. Flags were chosen over subcommands to avoid collisions between command names and hostnames / ssh-config aliases.

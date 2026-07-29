@@ -79,7 +79,7 @@ fn target_from(args: &Args) -> Result<Target> {
     let port = config.port.unwrap_or(22);
 
     let jumphost = if let Some(ref j) = args.jumphost {
-        Some(parse_endpoint(j)?)
+        Some(resolve_jumphost(j)?)
     } else {
         resolve_proxy_jump(&config)?
     };
@@ -87,17 +87,23 @@ fn target_from(args: &Args) -> Result<Target> {
     Ok(Target { username, host, port, jumphost })
 }
 
+/// Turn a `[user@]host` jumphost spec into a resolved endpoint, honouring the
+/// same `~/.ssh/config` settings a direct connection would: the alias's
+/// `HostName`, and its `User` when the spec names none. Shared by the explicit
+/// `-J` flag and a config-derived `ProxyJump` so both resolve identically.
+fn resolve_jumphost(spec: &str) -> Result<sshtool::Endpoint> {
+    let endpoint = parse_endpoint(spec)?;
+    let config = ssh_config::resolve(&endpoint.host);
+    Ok(sshtool::Endpoint {
+        username: endpoint.username.or(config.user),
+        host: config.host_name.unwrap_or(endpoint.host),
+    })
+}
+
 fn resolve_proxy_jump(config: &ssh_config::HostParams) -> Result<Option<sshtool::Endpoint>> {
     match config.proxy_jump.as_deref() {
         None | Some([]) => Ok(None),
-        Some([single]) => {
-            let endpoint = parse_endpoint(single)?;
-            let jump_config = ssh_config::resolve(&endpoint.host);
-            Ok(Some(sshtool::Endpoint {
-                username: endpoint.username,
-                host: jump_config.host_name.unwrap_or(endpoint.host),
-            }))
-        }
+        Some([single]) => Ok(Some(resolve_jumphost(single)?)),
         Some(_) => anyhow::bail!(
             "~/.ssh/config specifies multiple ProxyJump hops for this host, \
              which sshtool does not currently support. Use a single hop or pass -J explicitly."
