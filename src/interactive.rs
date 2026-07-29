@@ -281,9 +281,9 @@ mod windows_console {
     }
 }
 
-/// Notices terminal resizes. On Unix that is `SIGWINCH`; on platforms without a
-/// resize signal it simply never fires (Windows resize is handled separately,
-/// later).
+/// Notices terminal resizes and lets the pump forward them to the remote. Unix
+/// waits on `SIGWINCH`; platforms without a resize signal (Windows) poll the
+/// console size instead — see the `not(unix)` implementation below.
 #[cfg(unix)]
 struct ResizeWatcher(tokio::signal::unix::Signal);
 

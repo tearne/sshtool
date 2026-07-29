@@ -116,11 +116,13 @@ fn exit_code_from(remote_status: u32) -> ExitCode {
 )]
 struct Args {
     /// Remote destination as [user@]host
-    #[arg(conflicts_with_all = ["keygen", "install"])]
+    #[cfg_attr(windows, arg(conflicts_with_all = ["keygen", "install"]))]
+    #[cfg_attr(not(windows), arg(conflicts_with_all = ["keygen"]))]
     destination: Option<String>,
 
     /// Generate an Ed25519 keypair and load it into the SSH agent
-    #[arg(long, conflicts_with_all = ["install", "copy_id", "jumphost", "force_pty", "no_shell", "reconnect", "forwards", "verbose"])]
+    #[cfg_attr(windows, arg(long, conflicts_with_all = ["install", "copy_id", "jumphost", "force_pty", "no_shell", "reconnect", "forwards", "verbose"]))]
+    #[cfg_attr(not(windows), arg(long, conflicts_with_all = ["copy_id", "jumphost", "force_pty", "no_shell", "reconnect", "forwards", "verbose"]))]
     keygen: bool,
 
     /// Install the agent's SSH key on the remote host (and jumphost if specified)

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.5
+
+- `--keygen`, `--copy-id`, and `--install` (Windows) are now first-class flags listed in `--help`, replacing the previous hidden subcommand-style routing. The default `sshtool user@host` invocation is unchanged. Flags were chosen over subcommands to avoid collisions between command names and hostnames / ssh-config aliases.
+
 ## 0.9.4
 
 - Read connection settings from `~/.ssh/config`: `HostName`, `User`, `Port`, and `ProxyJump` (single hop). Explicit CLI flags take precedence. `sshtool myalias` now honours whatever the user has set up for `ssh`.
