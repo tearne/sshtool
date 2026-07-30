@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.0
+
+- The management operations are now clap subcommands — `sshtool keygen`, `sshtool copy-id user@host [-J jumphost]`, and (Windows) `sshtool install` — replacing the `--keygen` / `--copy-id` / `--install` flags introduced in 0.9.5. Each subcommand owns its arguments and has its own `--help`. Connecting is unchanged: `sshtool [user@]host …` still connects by default, and `sshtool connect …` is an explicit equivalent. A remote command whose first word matches a subcommand name must be separated with `--` (e.g. `sshtool host -- keygen`).
+
 ## 0.9.6
 
 - Fix: an explicit `-J <alias>` jumphost is now resolved through `~/.ssh/config` (honouring the alias's `HostName` and `User`), matching how a config `ProxyJump` alias already resolved. `sshtool -J jh2 host` no longer fails with "No such host is known" when `jh2` is a config alias.
