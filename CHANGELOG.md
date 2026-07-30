@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.10.1
+
+- Fix: `copy-id` is now idempotent. The install step guards the append with `grep -qxF`, so re-running `copy-id` against a host no longer adds duplicate copies of the key to `authorized_keys`. Still works on restricted shells (rbash) — the guard uses no output redirection.
+
 ## 0.10.0
 
 - The management operations are now clap subcommands — `sshtool keygen`, `sshtool copy-id user@host [-J jumphost]`, and (Windows) `sshtool install` — replacing the `--keygen` / `--copy-id` / `--install` flags introduced in 0.9.5. Each subcommand owns its arguments and has its own `--help`. Connecting is unchanged: `sshtool [user@]host …` still connects by default, and `sshtool connect …` is an explicit equivalent. A remote command whose first word matches a subcommand name must be separated with `--` (e.g. `sshtool host -- keygen`).

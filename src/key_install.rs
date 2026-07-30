@@ -181,9 +181,13 @@ async fn install_on_handle(
 ) -> Result<()> {
     // Use printf|tee rather than echo>> so this works on restricted shells (rbash)
     // that block output redirection. umask 077 sets correct permissions without
-    // needing chmod, which also avoids redirection.
+    // needing chmod, which also avoids redirection. The grep guard makes the
+    // install idempotent — re-running copy-id won't duplicate the key line; we
+    // touch the file first so grep has something to read without an error we'd
+    // otherwise have to redirect away (also blocked on rbash).
     let cmd = format!(
-        "umask 077; mkdir -p .ssh; printf '%s\\n' {pubkey} | tee -a .ssh/authorized_keys",
+        "umask 077; mkdir -p .ssh; touch .ssh/authorized_keys; \
+         grep -qxF {pubkey} .ssh/authorized_keys || printf '%s\\n' {pubkey} | tee -a .ssh/authorized_keys",
         pubkey = shell_escape(public_key_line),
     );
     let status = command::run(handle, &cmd).await?;
