@@ -6,7 +6,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Args, Parser, Subcommand};
 use clap::builder::ArgAction;
-use sshtool::{Target, copy_id, interactive, keygen, parse_endpoint, reconnecting_interactive, run, ssh_config, tunnel, tunnel::parse_forward};
+use sshtool::{Foreground, Target, copy_id, keygen, parse_endpoint, run, ssh_config, tunnel::parse_forward};
 #[cfg(windows)]
 use sshtool::install;
 
@@ -46,24 +46,43 @@ async fn execute(args: ConnectArgs) -> Result<u32> {
         anyhow::bail!("-N (no shell) and a command are mutually exclusive");
     }
 
-    if !args.forwards.is_empty() {
-        let forwards = args
-            .forwards
-            .iter()
-            .map(|s| parse_forward(s))
-            .collect::<Result<Vec<_>>>()?;
-        tunnel(&target, &forwards, args.verbose).await?;
-        return Ok(0);
-    }
+    let forwards = forwards_for(destination, &args.forwards)?;
+    let foreground = foreground_for(&args, command);
 
-    match command {
-        Some(command) if !args.force_pty && !args.reconnect => {
-            run(&target, &command).await
+    run(&target, forwards, foreground, args.reconnect, args.verbose).await
+}
+
+/// Merge the host's config `LocalForward` entries with any `-L` flags into one
+/// forward set, config first, and parse each into a bindable forward. Both
+/// sources already share the `[bind:]port:host:hostport` colon form.
+fn forwards_for(
+    destination: &str,
+    cli_forwards: &[String],
+) -> Result<Vec<sshtool::tunnel::LocalForward>> {
+    let endpoint = parse_endpoint(destination)?;
+    let config = ssh_config::resolve(&endpoint.host);
+    config
+        .local_forwards
+        .iter()
+        .chain(cli_forwards)
+        .map(|spec| parse_forward(spec))
+        .collect()
+}
+
+/// Decide what runs in the foreground: `-N` suppresses it entirely; a bare
+/// command with neither `-t` nor `-r` streams without a PTY; everything else —
+/// a shell, a forced-PTY command, or a reconnecting one — runs interactively.
+fn foreground_for(args: &ConnectArgs, command: Option<String>) -> Foreground {
+    if args.no_shell {
+        Foreground::None
+    } else if let Some(command) = command {
+        if !args.force_pty && !args.reconnect {
+            Foreground::Command(command)
+        } else {
+            Foreground::Interactive(Some(command))
         }
-        command if args.reconnect => {
-            reconnecting_interactive(&target, command.as_deref(), args.verbose).await
-        }
-        command => interactive(&target, command.as_deref()).await,
+    } else {
+        Foreground::Interactive(None)
     }
 }
 

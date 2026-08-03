@@ -18,6 +18,10 @@ pub struct HostParams {
     pub port: Option<u16>,
     /// ProxyJump targets (comma-separated entries become separate strings).
     pub proxy_jump: Option<Vec<String>>,
+    /// LocalForward specs, each normalised to the `[bind:]port:host:hostport`
+    /// colon form so they parse identically to a `-L` flag. Accumulates: ssh
+    /// applies every matching LocalForward line, not just the first.
+    pub local_forwards: Vec<String>,
 }
 
 /// Load `~/.ssh/config` and return the parameters that match `host`.
@@ -74,6 +78,15 @@ fn parse(text: &str, target_host: &str) -> HostParams {
         } else if key.eq_ignore_ascii_case("ProxyJump") && params.proxy_jump.is_none() {
             let hops: Vec<String> = value.split(',').map(|s| s.trim().to_owned()).collect();
             params.proxy_jump = Some(hops);
+        } else if key.eq_ignore_ascii_case("LocalForward") {
+            // ssh form is two whitespace-separated tokens: "[bind:]port host:hostport".
+            // Joining them with ':' yields the same `[bind:]port:host:hostport` shape
+            // a `-L` flag uses, so both feed one parser downstream.
+            if let Some((listen, dest)) = value.split_once(char::is_whitespace) {
+                params
+                    .local_forwards
+                    .push(format!("{}:{}", listen.trim(), dest.trim()));
+            }
         }
     }
 
@@ -154,6 +167,10 @@ Host *.internal
 Host multi-jump
     ProxyJump hop1,hop2
 
+Host forwarder
+    LocalForward 8080 localhost:80
+    LocalForward 127.0.0.1:5432 db.internal:5432
+
 Host negated !bad
     User other
 "#;
@@ -200,5 +217,23 @@ Host negated !bad
     fn negation_excludes_host() {
         let p = parse(SAMPLE, "bad");
         assert!(p.user.is_none());
+    }
+
+    #[test]
+    fn local_forward_accumulates_and_normalises() {
+        let p = parse(SAMPLE, "forwarder");
+        assert_eq!(
+            p.local_forwards,
+            vec![
+                "8080:localhost:80".to_owned(),
+                "127.0.0.1:5432:db.internal:5432".to_owned(),
+            ]
+        );
+    }
+
+    #[test]
+    fn no_local_forward_is_empty() {
+        let p = parse(SAMPLE, "bastion");
+        assert!(p.local_forwards.is_empty());
     }
 }

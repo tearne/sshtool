@@ -25,10 +25,6 @@ impl Session {
     pub(crate) fn active(&self) -> &Handle<Client> {
         &self.active
     }
-
-    pub(crate) fn active_mut(&mut self) -> &mut Handle<Client> {
-        &mut self.active
-    }
 }
 
 pub(crate) async fn connect(

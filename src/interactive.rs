@@ -13,87 +13,20 @@ use tokio::sync::mpsc;
 
 use crate::connection::Client;
 
-/// Open an interactive session — a shell when `command` is `None`, otherwise that
-/// command — and wire it to the local terminal until it closes. Returns the
-/// remote exit status.
-pub(crate) async fn interactive(session: &Handle<Client>, command: Option<&str>) -> Result<u32> {
-    let mut stdin = spawn_stdin_reader();
-    let _raw = RawMode::enter()?;
+/// Open an interactive session for one connection — a shell when `command` is
+/// `None`, otherwise that command over a PTY — and wire it to the local terminal
+/// until it closes. The stdin reader and raw mode are owned by the caller (the
+/// session supervisor) so they persist across reconnects. Returns the remote
+/// exit status, or an error if the connection dropped before a clean exit.
+pub(crate) async fn run_once(
+    session: &Handle<Client>,
+    command: Option<&str>,
+    stdin: &mut mpsc::Receiver<Vec<u8>>,
+) -> Result<u32> {
     let mut channel = session.channel_open_session().await?;
     request_pty(&channel).await?;
     start(&channel, command).await?;
-    pump(&mut channel, &mut stdin).await
-}
-
-/// Open an interactive session with reconnection: on drop, wait backoff and
-/// reconnect, re-running the same command each time. The stdin reader is shared
-/// across reconnects so input typed during a reconnect attempt is not lost.
-/// Returns only when the remote command exits cleanly (status 0) or on a
-/// non-recoverable error.
-pub(crate) async fn reconnecting_interactive(
-    target: &crate::Target,
-    command: Option<&str>,
-    verbose: u8,
-) -> Result<u32> {
-    let mut stdin = spawn_stdin_reader();
-    let _raw = RawMode::enter()?;
-    let mut backoff = std::time::Duration::from_secs(2);
-
-    loop {
-        if verbose >= 1 {
-            eprintln!("Connecting to {}…", target.host);
-        }
-        let session = match connect_with_timeout(target).await {
-            Ok(s) => s,
-            Err(e) => {
-                eprintln!("Connection failed: {e:#}");
-                eprintln!("Retrying in {}s…", backoff.as_secs());
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(std::time::Duration::from_secs(60));
-                continue;
-            }
-        };
-        if verbose >= 1 {
-            eprintln!("Connected.");
-        }
-        backoff = std::time::Duration::from_secs(2);
-
-        let mut channel = match session.active().channel_open_session().await {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("Session error: {e:#}");
-                continue;
-            }
-        };
-        if let Err(e) = request_pty(&channel).await {
-            eprintln!("PTY error: {e:#}");
-            continue;
-        }
-        if let Err(e) = start(&channel, command).await {
-            eprintln!("Start error: {e:#}");
-            continue;
-        }
-
-        match pump(&mut channel, &mut stdin).await {
-            Ok(status) if status == 0 => return Ok(status),
-            Ok(status) => return Ok(status),
-            Err(e) => {
-                eprintln!("Connection lost: {e:#}");
-                eprintln!("Reconnecting in {}s…", backoff.as_secs());
-                tokio::time::sleep(backoff).await;
-                backoff = (backoff * 2).min(std::time::Duration::from_secs(60));
-            }
-        }
-    }
-}
-
-async fn connect_with_timeout(target: &crate::Target) -> Result<crate::connection::Session> {
-    tokio::time::timeout(
-        std::time::Duration::from_secs(30),
-        crate::connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()),
-    )
-    .await
-    .map_err(|_| anyhow::anyhow!("timed out connecting to {}", target.host))?
+    pump(&mut channel, stdin).await
 }
 
 async fn request_pty(channel: &Channel<Msg>) -> Result<()> {
@@ -158,7 +91,7 @@ async fn pump(channel: &mut Channel<Msg>, local_stdin: &mut mpsc::Receiver<Vec<u
 /// We avoid `tokio::io::stdin`, whose blocking read cannot be cancelled: once the
 /// remote session ends, that pending read would hang runtime shutdown until the
 /// user pressed a key. A plain thread we never join is simply killed at exit.
-fn spawn_stdin_reader() -> mpsc::Receiver<Vec<u8>> {
+pub(crate) fn spawn_stdin_reader() -> mpsc::Receiver<Vec<u8>> {
     let (sender, receiver) = mpsc::channel::<Vec<u8>>(16);
     std::thread::spawn(move || {
         let mut stdin = std::io::stdin().lock();
@@ -183,13 +116,13 @@ fn spawn_stdin_reader() -> mpsc::Receiver<Vec<u8>> {
 /// still leaves the terminal usable. On Windows it additionally switches the
 /// console to virtual-terminal input and output, so keystrokes reach the remote
 /// as a raw VT byte stream and the remote's escape sequences render.
-struct RawMode {
+pub(crate) struct RawMode {
     #[cfg(windows)]
     console: windows_console::VirtualTerminal,
 }
 
 impl RawMode {
-    fn enter() -> Result<Self> {
+    pub(crate) fn enter() -> Result<Self> {
         enable_raw_mode()?;
         Ok(RawMode {
             #[cfg(windows)]

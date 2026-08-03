@@ -7,6 +7,7 @@ mod connection;
 mod endpoint;
 mod interactive;
 mod key_install;
+mod session;
 pub mod ssh_config;
 pub mod tunnel;
 #[cfg(windows)]
@@ -14,11 +15,9 @@ mod install;
 
 pub use endpoint::{Endpoint, parse_endpoint};
 pub use key_install::{copy_id, keygen};
-pub use tunnel::tunnel;
+pub use session::{Foreground, run};
 #[cfg(windows)]
 pub use install::install;
-
-use anyhow::Result;
 
 /// A remote destination. The jumphost, when present, may authenticate with its
 /// own username; if it carries none it reuses the destination's.
@@ -27,32 +26,4 @@ pub struct Target {
     pub host: String,
     pub port: u16,
     pub jumphost: Option<Endpoint>,
-}
-
-/// Run a command non-interactively, streaming its output to the local terminal,
-/// and return the remote exit status.
-pub async fn run(target: &Target, command: &str) -> Result<u32> {
-    let session = connect(target).await?;
-    command::run(session.active(), command).await
-}
-
-/// Open an interactive terminal — a shell when `command` is `None`, otherwise that
-/// command over a PTY — and return the remote exit status.
-pub async fn interactive(target: &Target, command: Option<&str>) -> Result<u32> {
-    let session = connect(target).await?;
-    interactive::interactive(session.active(), command).await
-}
-
-/// Open an interactive terminal with automatic reconnection on network drop.
-/// Re-runs the same command each time (e.g. `tmux attach` or `zellij attach`).
-pub async fn reconnecting_interactive(
-    target: &Target,
-    command: Option<&str>,
-    verbose: u8,
-) -> Result<u32> {
-    interactive::reconnecting_interactive(target, command, verbose).await
-}
-
-async fn connect(target: &Target) -> Result<connection::Session> {
-    connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()).await
 }

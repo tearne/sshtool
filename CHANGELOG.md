@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.11.1
+
+- `LocalForward` entries in `~/.ssh/config` are now honoured automatically, the same way `HostName`, `User`, and `ProxyJump` already were, and are merged with any `-L` flags on the command line. Forwards now run *alongside* a shell or command (as `ssh` does) rather than forcing a forward-only session; `-N` selects forward-only, matching `ssh -N`. A forward that can't bind prints a warning and is skipped instead of taking the whole session down. Reconnection (`-r`) now applies uniformly across forwarding and interactive sessions.
+
 ## 0.10.1
 
 - Fix: `copy-id` is now idempotent. The install step guards the append with `grep -qxF`, so re-running `copy-id` against a host no longer adds duplicate copies of the key to `authorized_keys`. Still works on restricted shells (rbash) — the guard uses no output redirection.
