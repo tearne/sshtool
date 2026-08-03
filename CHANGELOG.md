@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.12.1
+
+- A remote command run over a pseudo-terminal — via `-t`, or the reconnecting `-r` used to attach a multiplexer — now runs through a login shell (`$SHELL -lc`, falling back to `bash`). It sources the user's profile, so `PATH` entries like `~/.local/bin` and `~/.cargo/bin` are present and tools such as `zellij`/`tmux` are found, matching what an interactive shell sees. `sshtool -t host zellij a` no longer fails with "command not found". The plain streamed path (`sshtool host cmd`, no PTY) stays non-login like `ssh`, so captured output isn't polluted by profile banners. Help text for `-t`/`-r` documents the behaviour, including that `-r` implies `-t`.
+
 ## 0.11.1
 
 - `LocalForward` entries in `~/.ssh/config` are now honoured automatically, the same way `HostName`, `User`, and `ProxyJump` already were, and are merged with any `-L` flags on the command line. Forwards now run *alongside* a shell or command (as `ssh` does) rather than forcing a forward-only session; `-N` selects forward-only, matching `ssh -N`. A forward that can't bind prints a warning and is skipped instead of taking the whole session down. Reconnection (`-r`) now applies uniformly across forwarding and interactive sessions.

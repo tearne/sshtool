@@ -72,6 +72,8 @@ fn forwards_for(
 /// Decide what runs in the foreground: `-N` suppresses it entirely; a bare
 /// command with neither `-t` nor `-r` streams without a PTY; everything else —
 /// a shell, a forced-PTY command, or a reconnecting one — runs interactively.
+/// A command over a PTY is run through a login shell so it inherits the user's
+/// profile `PATH`, matching what an interactive shell would find.
 fn foreground_for(args: &ConnectArgs, command: Option<String>) -> Foreground {
     if args.no_shell {
         Foreground::None
@@ -79,11 +81,21 @@ fn foreground_for(args: &ConnectArgs, command: Option<String>) -> Foreground {
         if !args.force_pty && !args.reconnect {
             Foreground::Command(command)
         } else {
-            Foreground::Interactive(Some(command))
+            Foreground::Interactive(Some(login_shell_wrap(&command)))
         }
     } else {
         Foreground::Interactive(None)
     }
+}
+
+/// Wrap a command so a login shell runs it, sourcing the user's profile (where
+/// `PATH` entries like `~/.local/bin` are built). `$SHELL` honours the account's
+/// own shell, falling back to `bash` when unset. The command is single-quoted —
+/// each embedded quote closed, escaped, and reopened — so its metacharacters
+/// reach the login shell verbatim.
+fn login_shell_wrap(command: &str) -> String {
+    let escaped = command.replace('\'', "'\\''");
+    format!("${{SHELL:-bash}} -lc '{escaped}'")
 }
 
 fn target_from(destination_str: &str, jumphost: Option<&str>) -> Result<Target> {
@@ -181,7 +193,7 @@ struct ConnectArgs {
     #[arg(short = 'J', long = "jumphost")]
     jumphost: Option<String>,
 
-    /// Force a pseudo-terminal: run the command interactively (e.g. `tmux attach`)
+    /// Force a pseudo-terminal and run the command through a login shell, so it sees your profile PATH (e.g. `tmux attach`, `zellij a`)
     #[arg(short = 't')]
     force_pty: bool,
 
@@ -189,7 +201,7 @@ struct ConnectArgs {
     #[arg(short = 'N')]
     no_shell: bool,
 
-    /// Reconnect automatically if the connection drops; pair with a remote multiplexer command like `tmux attach` or `zellij attach` to resume the same session
+    /// Reconnect automatically if connection drops, e.g. pair with a remote multiplexer command like `zellij a` to resume sessions. Implies -t
     #[arg(short = 'r', long = "reconnect")]
     reconnect: bool,
 
@@ -204,4 +216,22 @@ struct ConnectArgs {
     /// Command to run; omit for an interactive shell (a leading `--` is optional)
     #[arg(trailing_var_arg = true, value_name = "REMOTE_COMMAND")]
     command: Vec<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::login_shell_wrap;
+
+    #[test]
+    fn wraps_a_plain_command_in_a_login_shell() {
+        assert_eq!(login_shell_wrap("zellij a"), "${SHELL:-bash} -lc 'zellij a'");
+    }
+
+    #[test]
+    fn escapes_embedded_single_quotes() {
+        assert_eq!(
+            login_shell_wrap("echo 'hi'"),
+            r#"${SHELL:-bash} -lc 'echo '\''hi'\'''"#
+        );
+    }
 }
