@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.13.2
+
+- New `-z` flag: `sshtool -z host` is shorthand for `sshtool -r host -- "zellij attach -c main"` — reconnect to the host and attach to the `main` Zellij session, creating it if it doesn't exist. It rides the existing `-r` reconnect and login-shell PTY path, so Zellij is found on `PATH` and resumes across drops. Attaching to a fixed-named session is deterministic — it always resumes the same session and never spawns duplicates. Because `-z` supplies the remote command itself, it can't be combined with an explicit command or `-N`; a redundant `-r` is accepted silently.
+
 ## 0.12.1
 
 - A remote command run over a pseudo-terminal — via `-t`, or the reconnecting `-r` used to attach a multiplexer — now runs through a login shell (`$SHELL -lc`, falling back to `bash`). It sources the user's profile, so `PATH` entries like `~/.local/bin` and `~/.cargo/bin` are present and tools such as `zellij`/`tmux` are found, matching what an interactive shell sees. `sshtool -t host zellij a` no longer fails with "command not found". The plain streamed path (`sshtool host cmd`, no PTY) stays non-login like `ssh`, so captured output isn't polluted by profile banners. Help text for `-t`/`-r` documents the behaviour, including that `-r` implies `-t`.

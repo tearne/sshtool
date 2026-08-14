@@ -30,6 +30,9 @@ sshtool alice@remote.internal
 # Drop straight into a tmux session (interactive, over a PTY)
 sshtool -t alice@remote.internal tmux attach
 
+# Reconnect and attach to the `main` Zellij session, creating it if it doesn't exist (shorthand for -r host -- "zellij attach -c main")
+sshtool -z alice@remote.internal
+
 # Through a jumphost (its own username, or the destination's if omitted)
 sshtool alice@remote.internal -J bob@gateway.example tail -n 50 /var/log/report.txt
 ```

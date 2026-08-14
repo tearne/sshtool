@@ -34,7 +34,9 @@ async fn main() -> Result<ExitCode> {
     }
 }
 
-async fn execute(args: ConnectArgs) -> Result<u32> {
+async fn execute(mut args: ConnectArgs) -> Result<u32> {
+    expand_zellij_shorthand(&mut args)?;
+
     let destination = args
         .destination
         .as_deref()
@@ -50,6 +52,25 @@ async fn execute(args: ConnectArgs) -> Result<u32> {
     let foreground = foreground_for(&args, command);
 
     run(&target, forwards, foreground, args.reconnect, args.verbose).await
+}
+
+/// `-z` is shorthand for reconnecting and attaching to the `main` Zellij
+/// session, creating it if it doesn't exist. It supplies the remote command
+/// itself, so it can't sit alongside an explicit command or `-N`. An explicit
+/// `-r` is redundant, not a conflict.
+fn expand_zellij_shorthand(args: &mut ConnectArgs) -> Result<()> {
+    if !args.zellij {
+        return Ok(());
+    }
+    if !args.command.is_empty() {
+        anyhow::bail!("-z and an explicit command are mutually exclusive");
+    }
+    if args.no_shell {
+        anyhow::bail!("-z and -N (no shell) are mutually exclusive");
+    }
+    args.reconnect = true;
+    args.command = vec!["zellij attach -c main".to_string()];
+    Ok(())
 }
 
 /// Merge the host's config `LocalForward` entries with any `-L` flags into one
@@ -204,6 +225,10 @@ struct ConnectArgs {
     /// Reconnect automatically if connection drops, e.g. pair with a remote multiplexer command like `zellij a` to resume sessions. Implies -t
     #[arg(short = 'r', long = "reconnect")]
     reconnect: bool,
+
+    /// Shorthand for `-r host -- "zellij attach -c main"`: reconnect and attach to the `main` Zellij session, creating it if it doesn't exist
+    #[arg(short = 'z')]
+    zellij: bool,
 
     /// Forward a local port to a remote endpoint: local_port:remote_host:remote_port
     #[arg(short = 'L')]
