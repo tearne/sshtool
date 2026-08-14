@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.14.1
+
+- Connection lifecycle events are now logged to `~/.sshtool/drops.log` (Windows `%USERPROFILE%\.sshtool\drops.log`): each connect, connect-failure, and drop is recorded with a UTC timestamp, the host, and — for drops — which detection signal noticed (heartbeat, forwarding, or foreground). Always on, independent of `-v`, and capped at the most recent 1000 events. Intended for diagnosing intermittent disconnects after the fact.
+
 ## 0.13.2
 
 - New `-z` flag: `sshtool -z host` is shorthand for `sshtool -r host -- "zellij attach -c main"` — reconnect to the host and attach to the `main` Zellij session, creating it if it doesn't exist. It rides the existing `-r` reconnect and login-shell PTY path, so Zellij is found on `PATH` and resumes across drops. Attaching to a fixed-named session is deterministic — it always resumes the same session and never spawns duplicates. Because `-z` supplies the remote command itself, it can't be combined with an explicit command or `-N`; a redundant `-r` is accepted silently.

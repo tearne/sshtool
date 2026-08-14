@@ -4,6 +4,7 @@
 mod authentication;
 mod command;
 mod connection;
+mod diagnostics;
 mod endpoint;
 mod interactive;
 mod key_install;

@@ -14,6 +14,7 @@ use tokio::task::JoinSet;
 use tokio::time::sleep;
 
 use crate::connection::{self, Session};
+use crate::diagnostics::{self, DropSignal};
 use crate::interactive::{self, RawMode, spawn_stdin_reader};
 use crate::tunnel::{self, BoundForward, LocalForward};
 use crate::{Target, command};
@@ -79,13 +80,17 @@ async fn supervise(
         }
         let session = match connect_with_timeout(target).await {
             Ok(session) => session,
-            Err(e) if reconnect => {
-                eprintln!("Connection failed: {e:#}");
-                backoff = wait_and_back_off(backoff).await;
-                continue;
+            Err(e) => {
+                diagnostics::connect_failed(&target.host, &e);
+                if reconnect {
+                    eprintln!("Connection failed: {e:#}");
+                    backoff = wait_and_back_off(backoff).await;
+                    continue;
+                }
+                return Err(e);
             }
-            Err(e) => return Err(e),
         };
+        diagnostics::connected(&target.host);
         if announce {
             eprintln!("Connected.");
         }
@@ -93,11 +98,15 @@ async fn supervise(
 
         match serve(session, &listeners, &foreground, &mut terminal, verbose).await {
             Round::Completed(status) => return Ok(status),
-            Round::Dropped(e) if reconnect => {
-                eprintln!("Connection lost: {e:#}");
-                backoff = wait_and_back_off(backoff).await;
+            Round::Dropped(signal, e) => {
+                diagnostics::dropped(&target.host, signal, &e);
+                if reconnect {
+                    eprintln!("Connection lost: {e:#}");
+                    backoff = wait_and_back_off(backoff).await;
+                } else {
+                    return Err(e);
+                }
             }
-            Round::Dropped(e) => return Err(e),
         }
     }
 }
@@ -106,8 +115,9 @@ async fn supervise(
 enum Round {
     /// The foreground finished cleanly; the whole session ends with this status.
     Completed(u32),
-    /// The connection dropped; reconnect if permitted, otherwise fail.
-    Dropped(anyhow::Error),
+    /// The connection dropped; reconnect if permitted, otherwise fail. Carries
+    /// which detection signal noticed the drop.
+    Dropped(DropSignal, anyhow::Error),
 }
 
 /// Serve one connection: run the forward accept loops and the heartbeat as
@@ -129,10 +139,10 @@ async fn serve(
             background.abort_all();
             match outcome {
                 Ok(status) => Round::Completed(status),
-                Err(e) => Round::Dropped(e),
+                Err(e) => Round::Dropped(DropSignal::Foreground, e),
             }
         }
-        drop = first_failure(&mut background) => Round::Dropped(drop),
+        (signal, error) = first_failure(&mut background) => Round::Dropped(signal, error),
     }
 }
 
@@ -140,15 +150,23 @@ fn spawn_forwarding(
     session: &Arc<Session>,
     listeners: &Arc<Vec<BoundForward>>,
     verbose: u8,
-) -> JoinSet<Result<()>> {
+) -> JoinSet<Result<(), (DropSignal, anyhow::Error)>> {
     let mut background = JoinSet::new();
     for index in 0..listeners.len() {
         let session = Arc::clone(session);
         let listeners = Arc::clone(listeners);
-        background.spawn(async move { tunnel::accept_loop(listeners, index, session).await });
+        background.spawn(async move {
+            tunnel::accept_loop(listeners, index, session)
+                .await
+                .map_err(|e| (DropSignal::Forwarding, e))
+        });
     }
     let session = Arc::clone(session);
-    background.spawn(async move { tunnel::heartbeat(session, verbose).await });
+    background.spawn(async move {
+        tunnel::heartbeat(session, verbose)
+            .await
+            .map_err(|e| (DropSignal::Heartbeat, e))
+    });
     background
 }
 
@@ -168,13 +186,25 @@ async fn run_foreground(
 
 /// Wait for the first background task to end. A background task ending at all
 /// means the session is no longer usable — accept loops and the heartbeat only
-/// return on error, so any return is a drop signal.
-async fn first_failure(background: &mut JoinSet<Result<()>>) -> anyhow::Error {
+/// return on error, so any return is a drop signal. Each task labels its error
+/// with the signal that noticed; anomalous exits are attributed to forwarding.
+async fn first_failure(
+    background: &mut JoinSet<Result<(), (DropSignal, anyhow::Error)>>,
+) -> (DropSignal, anyhow::Error) {
     match background.join_next().await {
-        Some(Ok(Err(e))) => e,
-        Some(Ok(Ok(()))) => anyhow::anyhow!("a forwarding task exited unexpectedly"),
-        Some(Err(e)) => anyhow::anyhow!("a forwarding task panicked: {e}"),
-        None => anyhow::anyhow!("no forwarding tasks running"),
+        Some(Ok(Err(labelled))) => labelled,
+        Some(Ok(Ok(()))) => (
+            DropSignal::Forwarding,
+            anyhow::anyhow!("a forwarding task exited unexpectedly"),
+        ),
+        Some(Err(e)) => (
+            DropSignal::Forwarding,
+            anyhow::anyhow!("a forwarding task panicked: {e}"),
+        ),
+        None => (
+            DropSignal::Forwarding,
+            anyhow::anyhow!("no forwarding tasks running"),
+        ),
     }
 }
 
