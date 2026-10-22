@@ -6,12 +6,11 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result, bail};
 use russh::keys::agent::AgentIdentity;
-use russh::keys::agent::client::AgentClient;
 use russh::keys::ssh_key::{Algorithm, LineEnding};
 use russh::keys::PrivateKey;
 
 use crate::Target;
-use crate::authentication::PasswordStore;
+use crate::authentication::{PasswordStore, connect_to_agent};
 use crate::command;
 use crate::connection::{self, Client, DEFAULT_SSH_PORT};
 
@@ -166,6 +165,7 @@ pub async fn copy_id(target: &Target) -> Result<()> {
         &target.host,
         target.port,
         target.jumphost.as_ref(),
+        Client::default(),
         &mut passwords,
     ).await?;
     install_on_handle(session.active(), &public_key_line).await?;
@@ -190,7 +190,7 @@ async fn install_on_handle(
          grep -qxF {pubkey} .ssh/authorized_keys || printf '%s\\n' {pubkey} | tee -a .ssh/authorized_keys",
         pubkey = shell_escape(public_key_line),
     );
-    let status = command::run(handle, &cmd).await?;
+    let status = command::run(handle, &cmd, false, 0).await?;
     if status != 0 {
         bail!("key install command exited with status {status}");
     }
@@ -254,19 +254,6 @@ fn public_key_of(identity: &AgentIdentity) -> russh::keys::ssh_key::PublicKey {
             )
         }
     }
-}
-
-#[cfg(unix)]
-async fn connect_to_agent() -> Option<AgentClient<tokio::net::UnixStream>> {
-    AgentClient::connect_env().await.ok()
-}
-
-#[cfg(windows)]
-async fn connect_to_agent(
-) -> Option<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>> {
-    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
-        .await
-        .ok()
 }
 
 // ── disk helpers ──────────────────────────────────────────────────────────────

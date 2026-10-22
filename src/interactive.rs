@@ -11,7 +11,7 @@ use russh::{Channel, ChannelMsg};
 use tokio::io::{AsyncWriteExt, stdout};
 use tokio::sync::mpsc;
 
-use crate::connection::Client;
+use crate::connection::{Client, request_agent_forwarding};
 
 /// Open an interactive session for one connection — a shell when `command` is
 /// `None`, otherwise that command over a PTY — and wire it to the local terminal
@@ -22,8 +22,13 @@ pub(crate) async fn run_once(
     session: &Handle<Client>,
     command: Option<&str>,
     stdin: &mut mpsc::Receiver<Vec<u8>>,
+    forward_agent: bool,
+    verbose: u8,
 ) -> Result<u32> {
     let mut channel = session.channel_open_session().await?;
+    if forward_agent {
+        request_agent_forwarding(&mut channel, verbose).await?;
+    }
     request_pty(&channel).await?;
     start(&channel, command).await?;
     pump(&mut channel, stdin).await

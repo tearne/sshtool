@@ -50,8 +50,9 @@ async fn execute(mut args: ConnectArgs) -> Result<u32> {
 
     let forwards = forwards_for(destination, &args.forwards)?;
     let foreground = foreground_for(&args, command);
+    let forward_agent = forward_agent_for(destination, args.forward_agent)?;
 
-    run(&target, forwards, foreground, args.reconnect, args.verbose).await
+    run(&target, forwards, foreground, args.reconnect, forward_agent, args.verbose).await
 }
 
 /// `-z` is shorthand for reconnecting and attaching to the `main` Zellij
@@ -88,6 +89,16 @@ fn forwards_for(
         .chain(cli_forwards)
         .map(|spec| parse_forward(spec))
         .collect()
+}
+
+/// `-A` turns agent forwarding on; without it the host's `ForwardAgent` decides,
+/// defaulting to off.
+fn forward_agent_for(destination: &str, cli_forward_agent: bool) -> Result<bool> {
+    if cli_forward_agent {
+        return Ok(true);
+    }
+    let endpoint = parse_endpoint(destination)?;
+    Ok(ssh_config::resolve(&endpoint.host).forward_agent.unwrap_or(false))
 }
 
 /// Decide what runs in the foreground: `-N` suppresses it entirely; a bare
@@ -229,6 +240,10 @@ struct ConnectArgs {
     /// Shorthand for `-r host -- "zellij attach -c main"`: reconnect and attach to the `main` Zellij session, creating it if it doesn't exist
     #[arg(short = 'z')]
     zellij: bool,
+
+    /// Forward the local ssh-agent to the destination, so remote tools can use your keys (as `ForwardAgent yes` in ~/.ssh/config)
+    #[arg(short = 'A')]
+    forward_agent: bool,
 
     /// Forward a local port to a remote endpoint: local_port:remote_host:remote_port
     #[arg(short = 'L')]

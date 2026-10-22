@@ -13,7 +13,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tokio::time::sleep;
 
-use crate::connection::{self, Session};
+use crate::connection::{self, Client, Session};
 use crate::diagnostics::{self, DropSignal};
 use crate::interactive::{self, RawMode, spawn_stdin_reader};
 use crate::tunnel::{self, BoundForward, LocalForward};
@@ -31,11 +31,13 @@ pub enum Foreground {
 
 /// Bind the forwards, then connect and serve until the foreground finishes or —
 /// with `reconnect` — forever across drops. Returns the foreground's exit status.
+/// `forward_agent` offers the local agent to the destination (never a jumphost).
 pub async fn run(
     target: &Target,
     forwards: Vec<LocalForward>,
     foreground: Foreground,
     reconnect: bool,
+    forward_agent: bool,
     verbose: u8,
 ) -> Result<u32> {
     if verbose >= 3 {
@@ -48,7 +50,7 @@ pub async fn run(
 
     let listeners = Arc::new(bind_forwards_or_fail(&forwards, &foreground).await?);
     let terminal = Terminal::for_foreground(&foreground)?;
-    supervise(target, listeners, foreground, terminal, reconnect, verbose).await
+    supervise(target, listeners, foreground, terminal, reconnect, forward_agent, verbose).await
 }
 
 async fn bind_forwards_or_fail(
@@ -69,6 +71,7 @@ async fn supervise(
     foreground: Foreground,
     mut terminal: Terminal,
     reconnect: bool,
+    forward_agent: bool,
     verbose: u8,
 ) -> Result<u32> {
     let announce = verbose >= 1 || !listeners.is_empty();
@@ -78,7 +81,7 @@ async fn supervise(
         if announce {
             eprintln!("Connecting to {}…", target.host);
         }
-        let session = match connect_with_timeout(target).await {
+        let session = match connect_with_timeout(target, forward_agent, verbose).await {
             Ok(session) => session,
             Err(e) => {
                 diagnostics::connect_failed(&target.host, &e);
@@ -96,7 +99,7 @@ async fn supervise(
         }
         backoff = Duration::from_secs(2);
 
-        match serve(session, &listeners, &foreground, &mut terminal, verbose).await {
+        match serve(session, &listeners, &foreground, &mut terminal, forward_agent, verbose).await {
             Round::Completed(status) => return Ok(status),
             Round::Dropped(signal, e) => {
                 diagnostics::dropped(&target.host, signal, &e);
@@ -129,13 +132,14 @@ async fn serve(
     listeners: &Arc<Vec<BoundForward>>,
     foreground: &Foreground,
     terminal: &mut Terminal,
+    forward_agent: bool,
     verbose: u8,
 ) -> Round {
     let session = Arc::new(session);
     let mut background = spawn_forwarding(&session, listeners, verbose);
 
     tokio::select! {
-        outcome = run_foreground(&session, foreground, terminal) => {
+        outcome = run_foreground(&session, foreground, terminal, forward_agent, verbose) => {
             background.abort_all();
             match outcome {
                 Ok(status) => Round::Completed(status),
@@ -174,12 +178,14 @@ async fn run_foreground(
     session: &Arc<Session>,
     foreground: &Foreground,
     terminal: &mut Terminal,
+    forward_agent: bool,
+    verbose: u8,
 ) -> Result<u32> {
     match foreground {
         Foreground::None => std::future::pending().await,
-        Foreground::Command(command) => command::run(session.active(), command).await,
+        Foreground::Command(command) => command::run(session.active(), command, forward_agent, verbose).await,
         Foreground::Interactive(command) => {
-            interactive::run_once(session.active(), command.as_deref(), terminal.stdin()).await
+            interactive::run_once(session.active(), command.as_deref(), terminal.stdin(), forward_agent, verbose).await
         }
     }
 }
@@ -208,10 +214,21 @@ async fn first_failure(
     }
 }
 
-async fn connect_with_timeout(target: &Target) -> Result<Session> {
+async fn connect_with_timeout(target: &Target, forward_agent: bool, verbose: u8) -> Result<Session> {
+    let destination = if forward_agent {
+        Client::forwarding_agent(verbose)
+    } else {
+        Client::default()
+    };
     tokio::time::timeout(
         Duration::from_secs(30),
-        connection::connect(&target.username, &target.host, target.port, target.jumphost.as_ref()),
+        connection::connect(
+            &target.username,
+            &target.host,
+            target.port,
+            target.jumphost.as_ref(),
+            destination,
+        ),
     )
     .await
     .map_err(|_| anyhow::anyhow!("timed out connecting to {}", target.host))?

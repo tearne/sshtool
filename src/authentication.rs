@@ -72,19 +72,40 @@ where
     Ok(false)
 }
 
-/// Connect to the platform's ssh-agent: the `SSH_AUTH_SOCK` socket on Unix, the
-/// OpenSSH named pipe on Windows. `None` means no agent is reachable.
-#[cfg(unix)]
-async fn connect_to_agent() -> Option<AgentClient<tokio::net::UnixStream>> {
-    AgentClient::connect_env().await.ok()
+/// Connect to the platform's ssh-agent. `None` means no agent is reachable.
+pub(crate) async fn connect_to_agent() -> Option<AgentClient<AgentSocket>> {
+    connect_agent_socket().await.ok().map(AgentClient::connect)
 }
 
+/// The raw connection to the local ssh-agent, unwrapped so it can also be
+/// spliced byte-for-byte onto a forwarded agent channel.
+#[cfg(unix)]
+pub(crate) type AgentSocket = tokio::net::UnixStream;
+
 #[cfg(windows)]
-async fn connect_to_agent() -> Option<AgentClient<tokio::net::windows::named_pipe::NamedPipeClient>>
-{
-    AgentClient::connect_named_pipe(r"\\.\pipe\openssh-ssh-agent")
-        .await
-        .ok()
+pub(crate) type AgentSocket = tokio::net::windows::named_pipe::NamedPipeClient;
+
+/// The `SSH_AUTH_SOCK` socket on Unix.
+#[cfg(unix)]
+pub(crate) async fn connect_agent_socket() -> std::io::Result<AgentSocket> {
+    let path = std::env::var_os("SSH_AUTH_SOCK")
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "SSH_AUTH_SOCK is not set"))?;
+    tokio::net::UnixStream::connect(path).await
+}
+
+/// The OpenSSH named pipe on Windows, retrying while every pipe instance is busy.
+#[cfg(windows)]
+pub(crate) async fn connect_agent_socket() -> std::io::Result<AgentSocket> {
+    use tokio::net::windows::named_pipe::ClientOptions;
+    use windows_sys::Win32::Foundation::ERROR_PIPE_BUSY;
+    loop {
+        match ClientOptions::new().open(r"\\.\pipe\openssh-ssh-agent") {
+            Ok(client) => return Ok(client),
+            Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY as i32) => {}
+            Err(e) => return Err(e),
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
 }
 
 /// Try a password already entered for this username; if there is none or it

@@ -1,7 +1,7 @@
 //! Resolving connection parameters from the user's ~/.ssh/config.
 //!
-//! Handles Host pattern matching and the five directives sshtool uses:
-//! HostName, User, Port, ProxyJump, IdentityFile (reserved for future use).
+//! Handles Host pattern matching and the directives sshtool uses:
+//! HostName, User, Port, ProxyJump, LocalForward, ForwardAgent.
 
 use std::env;
 use std::fs;
@@ -22,6 +22,8 @@ pub struct HostParams {
     /// colon form so they parse identically to a `-L` flag. Accumulates: ssh
     /// applies every matching LocalForward line, not just the first.
     pub local_forwards: Vec<String>,
+    /// `ForwardAgent yes|no`; `None` when unset, so an explicit `no` is distinguishable.
+    pub forward_agent: Option<bool>,
 }
 
 /// Load `~/.ssh/config` and return the parameters that match `host`.
@@ -78,6 +80,8 @@ fn parse(text: &str, target_host: &str) -> HostParams {
         } else if key.eq_ignore_ascii_case("ProxyJump") && params.proxy_jump.is_none() {
             let hops: Vec<String> = value.split(',').map(|s| s.trim().to_owned()).collect();
             params.proxy_jump = Some(hops);
+        } else if key.eq_ignore_ascii_case("ForwardAgent") && params.forward_agent.is_none() {
+            params.forward_agent = parse_yes_no(value);
         } else if key.eq_ignore_ascii_case("LocalForward") {
             // ssh form is two whitespace-separated tokens: "[bind:]port host:hostport".
             // Joining them with ':' yields the same `[bind:]port:host:hostport` shape
@@ -91,6 +95,16 @@ fn parse(text: &str, target_host: &str) -> HostParams {
     }
 
     params
+}
+
+fn parse_yes_no(value: &str) -> Option<bool> {
+    if value.eq_ignore_ascii_case("yes") {
+        Some(true)
+    } else if value.eq_ignore_ascii_case("no") {
+        Some(false)
+    } else {
+        None
+    }
 }
 
 /// Split a config line into (keyword, value), handling both `Key Value` and `Key=Value` forms.
@@ -173,6 +187,12 @@ Host forwarder
 
 Host negated !bad
     User other
+
+Host agent-on
+    ForwardAgent yes
+
+Host agent-off
+    ForwardAgent no
 "#;
 
     #[test]
@@ -235,5 +255,16 @@ Host negated !bad
     fn no_local_forward_is_empty() {
         let p = parse(SAMPLE, "bastion");
         assert!(p.local_forwards.is_empty());
+    }
+
+    #[test]
+    fn forward_agent_parses_yes_and_no() {
+        assert_eq!(parse(SAMPLE, "agent-on").forward_agent, Some(true));
+        assert_eq!(parse(SAMPLE, "agent-off").forward_agent, Some(false));
+    }
+
+    #[test]
+    fn forward_agent_absent_is_none() {
+        assert_eq!(parse(SAMPLE, "bastion").forward_agent, None);
     }
 }

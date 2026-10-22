@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.0
+
+- New `-A` flag forwards the local ssh-agent to the destination, like `ssh -A`: tools running there (`git`, a further `ssh`) use your local keys without them leaving your machine. `ForwardAgent yes` in `~/.ssh/config` turns it on without the flag. Only the destination is offered the agent — jumphosts never are, and an agent channel a server opens unasked is refused. A server that declines forwarding doesn't end the session; `-v` reports it. No effect with `-N`.
+
 ## 0.14.1
 
 - Connection lifecycle events are now logged to `~/.sshtool/drops.log` (Windows `%USERPROFILE%\.sshtool\drops.log`): each connect, connect-failure, and drop is recorded with a UTC timestamp, the host, and — for drops — which detection signal noticed (heartbeat, forwarding, or foreground). Always on, independent of `-v`, and capped at the most recent 1000 events. Intended for diagnosing intermittent disconnects after the fact.

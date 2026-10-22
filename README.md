@@ -15,10 +15,10 @@ Each hop authenticates with its own username: the destination's comes from `user
 ## Using the command-line tool
 
 ```
-sshtool [-t] user@host [-J [user@]host] [--] [command...]
+sshtool [-t] [-A] user@host [-J [user@]host] [--] [command...]
 ```
 
-With a command, it runs and streams the output. With **no command**, it opens an **interactive shell**. With **`-t`**, it runs the command interactively over a PTY (for full-screen programs like `tmux`). `-J` is the SSH-style jumphost flag (`--jumphost` is accepted too). A leading `--` before the command is optional. Examples:
+With a command, it runs and streams the output. With **no command**, it opens an **interactive shell**. With **`-t`**, it runs the command interactively over a PTY (for full-screen programs like `tmux`). `-J` is the SSH-style jumphost flag (`--jumphost` is accepted too). **`-A`** forwards your local ssh-agent to the destination — never to a jumphost — so tools there (`git`, a further `ssh`) can use your keys without them leaving your machine; `ForwardAgent yes` for the host in `~/.ssh/config` does the same without the flag. A leading `--` before the command is optional. Examples:
 
 ```sh
 # Run a command and stream its output
@@ -32,6 +32,9 @@ sshtool -t alice@remote.internal tmux attach
 
 # Reconnect and attach to the `main` Zellij session, creating it if it doesn't exist (shorthand for -r host -- "zellij attach -c main")
 sshtool -z alice@remote.internal
+
+# Use your local keys on the remote, e.g. to pull from a private git repo
+sshtool -A alice@remote.internal git -C project pull
 
 # Through a jumphost (its own username, or the destination's if omitted)
 sshtool alice@remote.internal -J bob@gateway.example tail -n 50 /var/log/report.txt

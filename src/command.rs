@@ -6,10 +6,18 @@ use russh::client::{Handle, Msg};
 use russh::{Channel, ChannelMsg};
 use tokio::io::{AsyncWriteExt, stderr, stdout};
 
-use crate::connection::Client;
+use crate::connection::{Client, request_agent_forwarding};
 
-pub(crate) async fn run(session: &Handle<Client>, command: &str) -> Result<u32> {
+pub(crate) async fn run(
+    session: &Handle<Client>,
+    command: &str,
+    forward_agent: bool,
+    verbose: u8,
+) -> Result<u32> {
     let mut channel = session.channel_open_session().await?;
+    if forward_agent {
+        request_agent_forwarding(&mut channel, verbose).await?;
+    }
     channel.exec(true, command).await?;
     stream_until_exit(&mut channel).await
 }
